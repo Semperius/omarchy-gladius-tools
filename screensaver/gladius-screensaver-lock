@@ -4,8 +4,9 @@
 #
 # Features:
 #   - Synchronized Multi-Monitor Display (DP-1, DP-2, DP-3)
-#   - Full-Motion Faction Cinematics (Transitions Eliminated)
-#   - Voiced Faction Audio with Aquila & Weapon Iconography
+#   - 11 Faction & Race Cinematic Episodes (Human Factions first, then Alphabetical)
+#   - Grim Dark enhanced colors, bombastic voice acting, and official theme scores
+#   - Timed sequences ending with fierce hero declarations
 #   - Frame-Accurate Simultaneous Multi-Screen Launch
 #   - Secure Zero-Exposure Lock Dismissal (No Desktop Flashing)
 # ==============================================================================
@@ -26,33 +27,35 @@ fi
 
 focused=$(omarchy-hyprland-monitor-focused 2>/dev/null || echo "DP-3")
 
-# 1. Generate a pure faction cinematic playlist for this session (transitions eliminated)
+# 1. Generate the authoritative 11-faction playlist:
+# Human factions first (alphabetical), then all other races/factions alphabetically
 python3 -c "
-import random, os
+import os
 
 DATA_DIR = os.path.expanduser('~/.local/share/gladius_screensaver')
 FACTION_DIR = f'{DATA_DIR}/factions'
 PLAYLIST_FILE = f'{DATA_DIR}/playlist.m3u'
 
-factions = [
-    f'{FACTION_DIR}/faction_ultramarine.mp4',
-    f'{FACTION_DIR}/faction_ork.mp4',
-    f'{FACTION_DIR}/faction_necron.mp4',
-    f'{FACTION_DIR}/faction_guard.mp4',
-    f'{FACTION_DIR}/faction_chaos.mp4'
+ordered_factions = [
+    # Human Factions first (alphabetical)
+    f'{FACTION_DIR}/01_adepta_sororitas.mp4',
+    f'{FACTION_DIR}/02_adeptus_mechanicus.mp4',
+    f'{FACTION_DIR}/03_astra_militarum.mp4',
+    f'{FACTION_DIR}/04_space_marines.mp4',
+    # All other factions alphabetically
+    f'{FACTION_DIR}/05_aeldari.mp4',
+    f'{FACTION_DIR}/06_chaos_space_marines.mp4',
+    f'{FACTION_DIR}/07_drukhari.mp4',
+    f'{FACTION_DIR}/08_necrons.mp4',
+    f'{FACTION_DIR}/09_orks.mp4',
+    f'{FACTION_DIR}/10_tau.mp4',
+    f'{FACTION_DIR}/11_tyranids.mp4'
 ]
 
-playlist_items = []
-# Create 6 random cycles so the screensaver can loop seamlessly without transitions
-for cycle in range(6):
-    pool = list(factions)
-    random.shuffle(pool)
-    for f in pool:
-        playlist_items.append(f)
-
 with open(PLAYLIST_FILE, 'w') as fp:
-    for item in playlist_items:
-        fp.write(f'{item}\n')
+    for item in ordered_factions:
+        if os.path.isfile(item):
+            fp.write(f'{item}\n')
 "
 
 # 2. Dispatch simultaneously to each monitor's visible workspace
