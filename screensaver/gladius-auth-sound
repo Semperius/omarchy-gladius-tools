@@ -1,0 +1,37 @@
+#!/bin/bash
+# ==============================================================================
+# Warhammer 40,000 Gladius Lock Authentication Audio Dispatcher
+# Plays high-clarity voice cues on failed or successful authentication.
+# Randomly selects across 5 failure phrases and 5 success phrases.
+# ==============================================================================
+
+ACTION="${1:-failure}"
+BASE_DIR="$HOME/.local/share/gladius_screensaver/auth_sounds"
+
+play_audio() {
+  local target="$1"
+  pkill -f 'pw-play.*auth_sounds' 2>/dev/null || true
+  pkill -f 'mpv.*auth_sounds' 2>/dev/null || true
+
+  if command -v pw-play >/dev/null 2>&1; then
+    exec pw-play "$target"
+  else
+    exec mpv --no-video --no-terminal --volume=100 "$target" >/dev/null 2>&1
+  fi
+}
+
+if [[ "$ACTION" == "failure" ]]; then
+  FILES=("$BASE_DIR/fail/"*.wav)
+  if [[ ${#FILES[@]} -gt 0 ]]; then
+    RANDOM_INDEX=$((RANDOM % ${#FILES[@]}))
+    CHOSEN="${FILES[$RANDOM_INDEX]}"
+    play_audio "$CHOSEN"
+  fi
+elif [[ "$ACTION" == "success" ]]; then
+  FILES=("$BASE_DIR/success/"*.wav)
+  if [[ ${#FILES[@]} -gt 0 ]]; then
+    RANDOM_INDEX=$((RANDOM % ${#FILES[@]}))
+    CHOSEN="${FILES[$RANDOM_INDEX]}"
+    play_audio "$CHOSEN"
+  fi
+fi

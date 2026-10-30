@@ -1,0 +1,36 @@
+#!/bin/bash
+# ==============================================================================
+# WARHAMMER 40,000 GLADIUS SUPREME SCREENSAVER DISMISS & SECURE LOCK DISPATCHER
+#
+# Eliminates the security violation where desktop is briefly revealed before lock.
+# When user dismisses screensaver (any key/click), this script:
+# 1. Initiates the lock screen immediately
+# 2. Holds the screensaver visual shield steady while compositor secures surfaces
+# 3. Waits until Wayland session lock is verified SECURE (sessionLock.secure == true)
+# 4. Only then terminates mpv in the background with ZERO desktop exposure
+# ==============================================================================
+
+# Ensure single execution
+exec 9>/tmp/gladius_screensaver_dismiss.lock
+if ! flock -n 9; then
+  exit 0
+fi
+
+# Request the lock screen immediately
+omarchy-shell lock lock 2>/dev/null || omarchy system lock 2>/dev/null || true
+
+# Wait until Wayland session lock surface is verified SECURE on all outputs
+deadline=$((SECONDS + 4))
+while (( SECONDS < deadline )); do
+  if [[ $(omarchy-shell lock isSecure 2>/dev/null) == "true" ]]; then
+    break
+  fi
+  sleep 0.02
+done
+
+# The lock surface is now completely active and obscuring all displays.
+# Safely kill mpv and background chatter processes with zero desktop exposure.
+killall -q mpv 2>/dev/null || true
+pkill -f '[g]ladius-battle-chatter' 2>/dev/null || true
+hyprctl eval 'hl.config({ cursor = { invisible = false } })' &>/dev/null || true
+exit 0

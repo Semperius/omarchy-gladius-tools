@@ -1,0 +1,303 @@
+#!/usr/bin/env python3
+"""
+Warhammer 40,000 Gladius Prime Screensaver & Soundtrack Rotation Manager
+- Rotates screensaver image and soundtrack track every 24 hours.
+- Enforces a 72-hour cooldown before a previously used image or music track can be selected again.
+"""
+
+import os
+import sys
+import json
+import time
+import glob
+import random
+import argparse
+import shutil
+
+STATE_DIR = os.path.expanduser("~/.local/state/gladius_screensaver")
+STATE_FILE = os.path.join(STATE_DIR, "rotation_state.json")
+ENV_FILE = os.path.join(STATE_DIR, "current_session.env")
+THEMES_DIR = os.path.expanduser("~/.config/omarchy/branding/gladius_screensavers")
+
+ROTATION_PERIOD = 24 * 3600  # 24 hours
+COOLDOWN_PERIOD = 72 * 3600  # 72 hours cooldown after 24h appearance
+
+def ensure_dirs():
+    os.makedirs(STATE_DIR, exist_ok=True)
+    os.makedirs(THEMES_DIR, exist_ok=True)
+
+def find_soundtrack_dir():
+    # 1. Standard Steam library location
+    std_path = os.path.expanduser(
+        "~/.local/share/Steam/steamapps/common/Warhammer 40000 Gladius - Relics of War/Soundtrack"
+    )
+    if os.path.isdir(std_path):
+        return std_path
+
+    # 2. Parse Steam libraryfolders.vdf for configured library paths
+    vdf_path = os.path.expanduser("~/.local/share/Steam/steamapps/libraryfolders.vdf")
+    if os.path.isfile(vdf_path):
+        try:
+            with open(vdf_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    if '"path"' in line:
+                        parts = line.split('"')
+                        if len(parts) >= 4:
+                            lib_base = parts[3]
+                            candidate = os.path.join(
+                                lib_base,
+                                "steamapps",
+                                "common",
+                                "Warhammer 40000 Gladius - Relics of War",
+                                "Soundtrack",
+                            )
+                            if os.path.isdir(candidate):
+                                return candidate
+        except Exception:
+            pass
+
+    # 3. Dynamic search across user and mounted media locations
+    patterns = [
+        "/run/media/*/*/SteamLibrary/steamapps/common/Warhammer 40000 Gladius - Relics of War/Soundtrack",
+        "/run/media/*/*/steamapps/common/Warhammer 40000 Gladius - Relics of War/Soundtrack",
+        "/media/*/*/SteamLibrary/steamapps/common/Warhammer 40000 Gladius - Relics of War/Soundtrack",
+        "/media/*/*/steamapps/common/Warhammer 40000 Gladius - Relics of War/Soundtrack",
+        os.path.expanduser("~/Games/SteamLibrary/steamapps/common/Warhammer 40000 Gladius - Relics of War/Soundtrack"),
+    ]
+    for pattern in patterns:
+        matches = glob.glob(pattern)
+        for match in matches:
+            if os.path.isdir(match):
+                return match
+
+    return None
+
+def get_available_images():
+    files = sorted(glob.glob(os.path.join(THEMES_DIR, "theme_*.txt")))
+    if not files:
+        # Fallback to standard screensaver if directory is empty
+        fallback = os.path.expanduser("~/.config/omarchy/branding/gladius_screensaver.txt")
+        if os.path.isfile(fallback):
+            return [fallback]
+        return [os.path.expanduser("~/.config/omarchy/branding/screensaver.txt")]
+    return files
+
+def get_available_music():
+    sdir = find_soundtrack_dir()
+    if not sdir or not os.path.isdir(sdir):
+        return []
+    
+    files = sorted(glob.glob(os.path.join(sdir, "*.mp3")))
+    # Prefer faction themes and main themes
+    themes = [f for f in files if "Theme" in os.path.basename(f)]
+    return themes if themes else files
+
+def load_state():
+    if os.path.isfile(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {
+        "active_selection": None,
+        "history": []
+    }
+
+def save_state(state):
+    ensure_dirs()
+    tmp_file = STATE_FILE + ".tmp"
+    with open(tmp_file, "w", encoding="utf-8") as f:
+        json.dump(state, f, indent=2)
+    os.replace(tmp_file, STATE_FILE)
+
+def get_last_ended(history, item_id, item_type):
+    last = 0
+    for entry in history:
+        if entry.get("id") == item_id and entry.get("type") == item_type:
+            ended_at = entry.get("ended_at", 0)
+            if ended_at > last:
+                last = ended_at
+    return last
+
+def select_candidate(all_items, item_type, history, now):
+    if not all_items:
+        return None
+    if len(all_items) == 1:
+        return all_items[0]
+
+    eligible = []
+    for item in all_items:
+        item_id = os.path.basename(item)
+        last_ended = get_last_ended(history, item_id, item_type)
+        if last_ended == 0 or (now - last_ended) >= COOLDOWN_PERIOD:
+            eligible.append(item)
+            
+    if not eligible:
+        # Failsafe: if cooldowns haven't expired for all items, pick the least recently ended
+        eligible = sorted(all_items, key=lambda x: get_last_ended(history, os.path.basename(x), item_type))[:1]
+        
+    return random.choice(eligible)
+
+def sync_active_files(image_path):
+    # Keep ~/.config/omarchy/branding/screensaver.txt in sync with active theme
+    dest1 = os.path.expanduser("~/.config/omarchy/branding/screensaver.txt")
+    dest2 = os.path.expanduser("~/.config/omarchy/branding/gladius_screensaver.txt")
+    try:
+        shutil.copyfile(image_path, dest1)
+        shutil.copyfile(image_path, dest2)
+    except Exception:
+        pass
+
+def write_env_file(active):
+    try:
+        with open(ENV_FILE, "w", encoding="utf-8") as f:
+            f.write(f"export GLADIUS_IMAGE='{active['image_path']}'\n")
+            f.write(f"export GLADIUS_MUSIC='{active['music_path']}'\n")
+            f.write(f"export GLADIUS_IMAGE_ID='{active['image_id']}'\n")
+            f.write(f"export GLADIUS_MUSIC_ID='{active['music_id']}'\n")
+            f.write(f"export GLADIUS_STARTED_AT='{active['started_at']}'\n")
+    except Exception:
+        pass
+
+def rotate(force=False):
+    ensure_dirs()
+    state = load_state()
+    now = time.time()
+    
+    active = state.get("active_selection")
+    history = state.get("history", [])
+    
+    needs_rotation = force or (active is None)
+    if not needs_rotation and active:
+        started_at = active.get("started_at", 0)
+        if (now - started_at) >= ROTATION_PERIOD:
+            needs_rotation = True
+            
+    all_images = get_available_images()
+    all_music = get_available_music()
+    
+    if needs_rotation:
+        # If current active existed, record its completion in history
+        if active:
+            old_image_id = active.get("image_id")
+            old_music_id = active.get("music_id")
+            started_at = active.get("started_at", now - ROTATION_PERIOD)
+            
+            if old_image_id:
+                history.append({
+                    "id": old_image_id,
+                    "type": "image",
+                    "started_at": started_at,
+                    "ended_at": now
+                })
+            if old_music_id:
+                history.append({
+                    "id": old_music_id,
+                    "type": "music",
+                    "started_at": started_at,
+                    "ended_at": now
+                })
+                
+        # Trim history older than 30 days
+        cutoff = now - (30 * 86400)
+        history = [e for e in history if e.get("ended_at", 0) >= cutoff]
+        
+        # Pick new candidates respecting 72h cooldown
+        chosen_image = select_candidate(all_images, "image", history, now)
+        chosen_music = select_candidate(all_music, "music", history, now)
+        
+        active = {
+            "image_path": chosen_image,
+            "image_id": os.path.basename(chosen_image) if chosen_image else "",
+            "music_path": chosen_music,
+            "music_id": os.path.basename(chosen_music) if chosen_music else "",
+            "started_at": now
+        }
+        
+        state["active_selection"] = active
+        state["history"] = history
+        save_state(state)
+        
+        if chosen_image:
+            sync_active_files(chosen_image)
+            
+    write_env_file(active)
+    return active, state
+
+def print_status():
+    state = load_state()
+    active = state.get("active_selection")
+    now = time.time()
+    
+    if not active:
+        print("No active screensaver rotation state found. Run with --rotate to initialize.")
+        return
+        
+    started_at = active.get("started_at", now)
+    elapsed = now - started_at
+    remaining = max(0, ROTATION_PERIOD - elapsed)
+    
+    rem_hours = remaining / 3600.0
+    elapsed_hours = elapsed / 3600.0
+    
+    print("=" * 70)
+    print("   WARHAMMER 40,000 GLADIUS SCREENSAVER & MUSIC 24-HOUR ROTATION")
+    print("=" * 70)
+    print(f"Active Artwork:    {active.get('image_id')}")
+    print(f"Active Soundtrack: {active.get('music_id')}")
+    print(f"Cycle Elapsed:     {elapsed_hours:.1f} hours / 24.0 hours")
+    print(f"Cycle Remaining:   {rem_hours:.1f} hours until next rotation")
+    print("-" * 70)
+    
+    history = state.get("history", [])
+    print("Recent History & 72-Hour Cooldown Status:")
+    all_images = get_available_images()
+    for img in all_images:
+        img_id = os.path.basename(img)
+        last_ended = get_last_ended(history, img_id, "image")
+        if img_id == active.get("image_id"):
+            status = "CURRENTLY ACTIVE (24h Window)"
+        elif last_ended == 0:
+            status = "READY (Never shown)"
+        else:
+            since = now - last_ended
+            if since < COOLDOWN_PERIOD:
+                rem_cd = (COOLDOWN_PERIOD - since) / 3600.0
+                status = f"COOLDOWN ({rem_cd:.1f}h remaining of 72h)"
+            else:
+                status = f"ELIGIBLE (Ended {since/3600.0:.1f}h ago)"
+        print(f"  • Image [{img_id}]: {status}")
+        
+    print("=" * 70)
+
+def main():
+    parser = argparse.ArgumentParser(description="Warhammer 40k Gladius Screensaver Rotation Manager")
+    parser.add_argument("--rotate", action="store_true", help="Force rotate to next image and music track")
+    parser.add_argument("--status", action="store_true", help="Display current active selection and cooldowns")
+    parser.add_argument("--image", action="store_true", help="Output path of currently active image")
+    parser.add_argument("--music", action="store_true", help="Output path of currently active music track")
+    parser.add_argument("--env", action="store_true", help="Output shell export statements")
+    args = parser.parse_args()
+    
+    if args.rotate:
+        active, _ = rotate(force=True)
+        print(f"Rotated to: {active['image_id']} | {active['music_id']}")
+        return
+        
+    active, _ = rotate(force=False)
+    
+    if args.status:
+        print_status()
+    elif args.image:
+        print(active["image_path"])
+    elif args.music:
+        print(active["music_path"])
+    elif args.env:
+        print(f"export GLADIUS_IMAGE='{active['image_path']}'")
+        print(f"export GLADIUS_MUSIC='{active['music_path']}'")
+    else:
+        print(json.dumps(active, indent=2))
+
+if __name__ == "__main__":
+    main()

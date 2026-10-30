@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly check for Warhammer 40k Gladius Screensaver 24-Hour Rotation
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,6 @@
+[Unit]
+Description=Warhammer 40k Gladius Screensaver 24-Hour Rotation Manager
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/gladius-rotation-manager

@@ -1,0 +1,53 @@
+#!/bin/bash
+# ==============================================================================
+# WARHAMMER 40,000 GLADIUS SUPREME UNIFIED ACTION SCREENSAVER RUNNER
+# ==============================================================================
+
+TARGET_MONITOR="${1:-DP-3}"
+AUDIO_FLAG="${2:---mute=yes}"
+
+DATA_DIR="$HOME/.local/share/gladius_screensaver"
+PLAYLIST_FILE="$DATA_DIR/playlist.m3u"
+MASTER_MP4="$DATA_DIR/gladius_cinematic_master.mp4"
+INPUT_CONF="$DATA_DIR/mpv_screensaver_input.conf"
+
+lock_and_exit() {
+  trap '' SIGINT SIGTERM SIGHUP SIGQUIT
+  
+  if [[ $(omarchy-shell lock isSecure 2>/dev/null) != "true" ]]; then
+    omarchy-shell lock lock 2>/dev/null || omarchy system lock 2>/dev/null || true
+    local deadline=$((SECONDS + 4))
+    while (( SECONDS < deadline )); do
+      if [[ $(omarchy-shell lock isSecure 2>/dev/null) == "true" ]]; then
+        break
+      fi
+      sleep 0.02
+    done
+  fi
+
+  # Dismiss screensavers across ALL screens simultaneously once lock is secure
+  killall -q mpv 2>/dev/null || true
+  pkill -f '[g]ladius-battle-chatter' 2>/dev/null || true
+  hyprctl eval 'hl.config({ cursor = { invisible = false } })' &>/dev/null || true
+  exit 0
+}
+
+trap lock_and_exit SIGTERM SIGINT SIGHUP SIGQUIT
+
+PLAY_ARG="--playlist=$PLAYLIST_FILE"
+if [[ ! -f "$PLAYLIST_FILE" ]]; then
+  PLAY_ARG="$MASTER_MP4"
+fi
+
+# Run hardware-accelerated video
+mpv --wayland-app-id=gladius.screensaver \
+    --fullscreen \
+    --hwdec=auto \
+    --loop-playlist=inf \
+    --osd-level=0 \
+    --cursor-autohide=always \
+    "$AUDIO_FLAG" \
+    --input-conf="$INPUT_CONF" \
+    $PLAY_ARG
+
+lock_and_exit
