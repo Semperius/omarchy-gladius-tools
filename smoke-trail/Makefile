@@ -1,7 +1,7 @@
 CC ?= gcc
 CFLAGS ?= -O2 -Wall
 PKG_CONFIG ?= pkg-config
-DEPS = gtk4 gtk4-layer-shell-0 cairo
+DEPS = gtk4 gtk4-layer-shell-0 cairo alsa
 CFLAGS += $(shell $(PKG_CONFIG) --cflags $(DEPS))
 LIBS += $(shell $(PKG_CONFIG) --libs $(DEPS)) -lm -lpthread
 
